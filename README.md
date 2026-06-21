@@ -3,7 +3,7 @@
 **Contribution Number:** 1  
 **Student:** Samiul Saimon  
 **Issue:** [lycheeverse/lychee#997](https://github.com/lycheeverse/lychee/issues/997)  
-**Status:** Phase II Complete (reproduced + planned)
+**Status:** Phase III In Progress (implementing solution)
 
 ---
 
@@ -179,28 +179,51 @@ Using UMPIRE framework (adapted):
 
 ## Testing Strategy
 
+The project tests these formatters with in-crate unit tests and exact-output "snapshot" assertions (e.g. `test_render_summary`), so I followed that same pattern rather than adding new integration-test files.
+
 ### Unit Tests
 
-- [ ] Test case 1: [Description]
-- [ ] Test case 2: [Description]
-- [ ] Test case 3: [Description]
+- [x] **Data layer — `response.rs::test_unsupported_stats`:** asserts that an `Unsupported` (IGNORED) response is both counted (`stats.unsupported == 1`) *and* stored in the new `unsupported_map`. This is the test that would have caught the original bug (responses counted but never stored).
+- [x] **Markdown — `markdown.rs::test_render_summary_with_ignored`:** exact-snapshot assertion on the full rendered summary, confirming a new `## Ignored per input` section is grouped by source and lists the ignored URL with its `[IGNORED]` reason.
+- [x] **JSON snapshot — `json.rs::test_json_formatter`:** updated the expected JSON to include the new serialized `unsupported_map` field (adding the field changes the serialized struct, so this snapshot had to move with it).
+- [x] **Regression:** all 13 pre-existing stats-formatter tests still pass. Current total: 15 passing (`cargo test --bin lychee formatters::stats`).
+- [ ] **Pending (commits 3–4):** compact (`compact.rs`) and detailed (`detailed.rs`) formatter tests, including the "input with only ignored links" case.
 
 ### Integration Tests
 
-- [ ] Integration scenario 1
-- [ ] Integration scenario 2
+- No new integration-test files were needed: the formatters are unit-tested in-crate (matching the project's existing approach), and end-to-end behavior is validated manually via the CLI (below).
 
 ### Manual Testing
 
-[What you tested manually and results]
+Rebuilt the binary and re-ran the exact Phase II reproduction. **Before**, the markdown report showed `⛔ Unsupported | 2` with no list of which URLs. **After commits 1–2**, the same command produces a new `## Ignored per input` section listing both ignored URLs and their reasons, so the count now reconciles with a visible list:
+
+```
+## Ignored per input
+
+### Ignored in /tmp/lychee-repro/links.md
+
+* [IGNORED] <hhttps://www.rust-lang.org> (at 6:1) | Unsupported: Failed to create HTTP request client: builder error for url (hhttps://www.rust-lang.org)
+* [IGNORED] <slack://channel?team=T123> (at 9:1) | Unsupported: Failed to create HTTP request client: builder error for url (slack://channel?team=T123)
+```
+
+`cargo clippy --bin lychee` is clean. Compact and detailed formatters not yet re-verified manually (their code changes are commits 3–4).
 
 ---
 
 ## Implementation Notes
 
-### Week [X] Progress
+### Week 3 Progress (Phase III)
 
-[What you built this week, challenges faced, decisions made]
+Synced my branch with the latest `upstream/master` (rebased — no conflicts; confirmed none of the upstream commits touched the `formatters/stats/` files I'm changing), then implemented the fix in small, independently-tested commits. Completed so far:
+
+1. **Data layer (commit 1):** added the `unsupported_map` field to `ResponseStats` and a branch in `add_response_status` so ignored/unsupported responses are stored (not just counted). This was the actual root cause — previously these responses fell through to `else { return; }` and were discarded.
+2. **Markdown formatter (commit 2):** added an `## Ignored per input` section, reusing the existing `write_stats_per_input` helper and `markdown_response` closure.
+
+Challenges faced and how I solved them:
+- **`ErrorKind` equality gotcha:** my first `response.rs` test used `Status::Unsupported(ErrorKind::UnsupportedUriType("slack"))`, and the assertion failed even though the debug output looked identical. Cause: `ErrorKind`'s hand-written `PartialEq` has no arm for `UnsupportedUriType`, so it falls to `_ => false` — two identical values are never equal. Fixed by using `ErrorKind::InvalidUrlHost`, which *is* handled (`=> true`) and is a real cause of an `Unsupported` status.
+- **JSON serialization coupling:** `ResponseStats` derives `Serialize`, so simply adding the new field changed the JSON formatter's output and broke `test_json_formatter`. The fix is correct and intended, so the snapshot update belongs in the same commit as the field.
+
+Still to do (next session): compact + detailed formatters (commits 3–4), with full parity so an input whose only problem is ignored links still lists them.
 
 ### Week [Y] Progress
 
@@ -208,9 +231,17 @@ Using UMPIRE framework (adapted):
 
 ### Code Changes
 
-- **Files modified:** [List]
-- **Key commits:** [Links to important commits]
-- **Approach decisions:** [Why you chose certain approaches]
+- **Files modified so far:** `lychee-bin/src/formatters/stats/response.rs` and `json.rs` (commit 1); `lychee-bin/src/formatters/stats/markdown.rs` (commit 2). Still to change: `compact.rs`, `detailed.rs`.
+- **Branch:** https://github.com/samiuls25/lychee/tree/fix-issue-997
+- **Key commits:**
+  - `feat(stats): collect ignored (unsupported) responses` — adds + populates `unsupported_map`, with a unit test and the JSON snapshot update.
+  - `feat(stats): list ignored links in the Markdown summary` — adds the `## Ignored per input` section + an exact-snapshot test.
+- **Approach decisions:**
+  - **One atomic commit per layer/formatter,** each leaving `cargo test` green, so the history is bisectable and easy to review.
+  - **Local test fixtures** (instead of editing the shared `get_dummy_stats`) so each formatter commit is self-contained and doesn't ripple snapshot churn into the others — the same approach `junit.rs` already uses.
+  - **Exact-snapshot assertions** to match the rest of the file's test style.
+  - **Labeled the section "Ignored"** to match the user-facing `[IGNORED]` status text and the issue title.
+  - **Left the unrelated `detailed.rs` count typo out** of these commits to keep the PR focused; will offer it as a follow-up in the PR description.
 
 ---
 
