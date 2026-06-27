@@ -3,7 +3,7 @@
 **Contribution Number:** 1  
 **Student:** Samiul Saimon  
 **Issue:** [lycheeverse/lychee#997](https://github.com/lycheeverse/lychee/issues/997)  
-**Status:** Phase III In Progress (implementing solution)
+**Status:** Phase III Complete (solution implemented and tested; PR pending)
 
 ---
 
@@ -186,8 +186,10 @@ The project tests these formatters with in-crate unit tests and exact-output "sn
 - [x] **Data layer — `response.rs::test_unsupported_stats`:** asserts that an `Unsupported` (IGNORED) response is both counted (`stats.unsupported == 1`) *and* stored in the new `unsupported_map`. This is the test that would have caught the original bug (responses counted but never stored).
 - [x] **Markdown — `markdown.rs::test_render_summary_with_ignored`:** exact-snapshot assertion on the full rendered summary, confirming a new `## Ignored per input` section is grouped by source and lists the ignored URL with its `[IGNORED]` reason.
 - [x] **JSON snapshot — `json.rs::test_json_formatter`:** updated the expected JSON to include the new serialized `unsupported_map` field (adding the field changes the serialized struct, so this snapshot had to move with it).
-- [x] **Regression:** all 13 pre-existing stats-formatter tests still pass. Current total: 15 passing (`cargo test --bin lychee formatters::stats`).
-- [ ] **Pending (commits 3–4):** compact (`compact.rs`) and detailed (`detailed.rs`) formatter tests, including the "input with only ignored links" case.
+- [x] **Compact — `compact.rs::test_formatter_lists_ignored_only_input`:** exact-snapshot (color codes stripped) confirming an input whose *only* finding is an ignored link is still listed under its source.
+- [x] **Detailed — `detailed.rs::test_detailed_formatter_lists_ignored_only_input`:** exact-snapshot confirming a dedicated `Ignored in <source>` section (not mislabeled under "Errors").
+- [x] **Count fix — `detailed.rs::test_detailed_formatter`:** updated snapshot after correcting the `⛔ Unsupported` summary row to use `stats.unsupported` instead of `stats.errors`.
+- [x] **Regression:** all 13 pre-existing stats-formatter tests still pass. Final total: 17 stats tests passing; full `cargo test --bin lychee` green (82 tests); `cargo clippy` clean.
 
 ### Integration Tests
 
@@ -195,7 +197,7 @@ The project tests these formatters with in-crate unit tests and exact-output "sn
 
 ### Manual Testing
 
-Rebuilt the binary and re-ran the exact Phase II reproduction. **Before**, the markdown report showed `⛔ Unsupported | 2` with no list of which URLs. **After commits 1–2**, the same command produces a new `## Ignored per input` section listing both ignored URLs and their reasons, so the count now reconciles with a visible list:
+Rebuilt the binary and re-ran the exact Phase II reproduction. **Before**, the markdown report showed `⛔ Unsupported | 2` with no list of which URLs. **After the fix**, the same command produces a new `## Ignored per input` section listing both ignored URLs and their reasons, so the count now reconciles with a visible list:
 
 ```
 ## Ignored per input
@@ -206,7 +208,7 @@ Rebuilt the binary and re-ran the exact Phase II reproduction. **Before**, the m
 * [IGNORED] <slack://channel?team=T123> (at 9:1) | Unsupported: Failed to create HTTP request client: builder error for url (slack://channel?team=T123)
 ```
 
-`cargo clippy --bin lychee` is clean. Compact and detailed formatters not yet re-verified manually (their code changes are commits 3–4).
+I also verified the compact (default) and detailed (`--format detailed`) formatters end-to-end: both now list ignored links per input, including for an input whose only finding is ignored links. After the count fix, the detailed formatter's `⛔ Unsupported` row correctly shows the number of ignored links (previously it printed the error count). `cargo clippy --bin lychee` is clean.
 
 ---
 
@@ -225,23 +227,35 @@ Challenges faced and how I solved them:
 
 Still to do (next session): compact + detailed formatters (commits 3–4), with full parity so an input whose only problem is ignored links still lists them.
 
-### Week [Y] Progress
+### Week 4 Progress (Phase III)
 
-[Continue documenting as you work]
+Re-synced with `upstream/master` and finished the remaining formatters, keeping the same small-commit discipline:
+
+3. **Compact formatter (commit 3):** chained `unsupported_map` into the per-input listing *and* the "Issues found in N inputs" count, so ignored links show under their source — including for inputs whose only finding is ignored links ("full parity").
+4. **Detailed formatter (commit 4):** added a dedicated `Ignored in <source>` section. I gave it its own block (rather than chaining into the existing `Errors in <source>` loop) so ignored links aren't mislabeled as errors, and so an input with only ignored links still appears.
+5. **Count fix (commit 5):** while in `detailed.rs` I found the `⛔ Unsupported` summary row printed `stats.errors` instead of `stats.unsupported`, so it showed the error count under the Unsupported label. Fixed it as its own `fix:` commit since it's directly on-theme for #997.
+
+Decision I revisited: I had originally planned to leave the count typo for a follow-up. On reflection, since it's the same file *and* the same "make unsupported links accurate/visible" theme as #997, I included it — but as a **separate commit** so it stays cleanly attributable and easy to split out if the maintainer prefers. I'll surface this explicitly in the PR description.
+
+All five commits are pushed to the branch; the full suite is green (17 stats tests, 82 bin tests) and clippy is clean. Ready to open the PR (Phase IV).
 
 ### Code Changes
 
-- **Files modified so far:** `lychee-bin/src/formatters/stats/response.rs` and `json.rs` (commit 1); `lychee-bin/src/formatters/stats/markdown.rs` (commit 2). Still to change: `compact.rs`, `detailed.rs`.
+- **Files modified (all in `lychee-bin/src/formatters/stats/`):** `response.rs` and `json.rs` (commit 1); `markdown.rs` (commit 2); `compact.rs` (commit 3); `detailed.rs` (commits 4 and 5).
 - **Branch:** https://github.com/samiuls25/lychee/tree/fix-issue-997
 - **Key commits:**
   - `feat(stats): collect ignored (unsupported) responses` — adds + populates `unsupported_map`, with a unit test and the JSON snapshot update.
   - `feat(stats): list ignored links in the Markdown summary` — adds the `## Ignored per input` section + an exact-snapshot test.
+  - `feat(stats): list ignored links in the compact summary` — lists ignored links per input (full parity) + test.
+  - `feat(stats): list ignored links in the detailed summary` — adds an `Ignored in <source>` section + test.
+  - `fix(stats): use the unsupported count in the detailed summary` — corrects the `stats.errors` → `stats.unsupported` typo + snapshot updates.
 - **Approach decisions:**
   - **One atomic commit per layer/formatter,** each leaving `cargo test` green, so the history is bisectable and easy to review.
   - **Local test fixtures** (instead of editing the shared `get_dummy_stats`) so each formatter commit is self-contained and doesn't ripple snapshot churn into the others — the same approach `junit.rs` already uses.
   - **Exact-snapshot assertions** to match the rest of the file's test style.
   - **Labeled the section "Ignored"** to match the user-facing `[IGNORED]` status text and the issue title.
-  - **Left the unrelated `detailed.rs` count typo out** of these commits to keep the PR focused; will offer it as a follow-up in the PR description.
+  - **Compact "Issues found in N" count includes ignored links** so the header matches the number of detail blocks shown; ignored links don't affect the exit code. Note in the PR as a reversible choice.
+  - **Included the `detailed.rs` count typo fix** as a separate `fix:` commit (originally planned as a follow-up) since it's on-theme for #997; kept separable in case the maintainer wants it split.
 
 ---
 
