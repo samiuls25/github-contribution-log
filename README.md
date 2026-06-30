@@ -3,7 +3,7 @@
 **Contribution Number:** 1  
 **Student:** Samiul Saimon  
 **Issue:** [lycheeverse/lychee#997](https://github.com/lycheeverse/lychee/issues/997)  
-**Status:** Phase III Complete (solution implemented and tested; PR pending)
+**Status:** Phase IV Complete — PR merged ✅
 
 ---
 
@@ -261,15 +261,17 @@ All five commits are pushed to the branch; the full suite is green (17 stats tes
 
 ## Pull Request
 
-**PR Link:** [GitHub PR URL when submitted]
+**PR Link:** https://github.com/lycheeverse/lychee/pull/2243
 
-**PR Description:** [Draft or final PR description - much of the content above can be adapted]
+**PR Description:** Resolves #997 by making ignored (`IGNORED`/unsupported) links visible in lychee's run summaries. lychee previously *counted* unsupported links (malformed or unsupported-scheme URLs) but never *stored* them, so they were never listed — the only hint was that `Total` didn't match the sum of the visible categories. The PR adds an `unsupported_map` to `ResponseStats` and lists ignored links per input in the markdown, compact, and detailed formatters (and exposes the new field in the JSON output), mirroring how Errors/Timeouts/Redirects are already broken out. It also includes a small related fix (the detailed formatter's `Unsupported` count printed the error count due to a copy-paste typo) as a separate commit. Split into 5 atomic commits, each green on `cargo test`; full suite (82 bin tests) and `cargo clippy`/`cargo fmt` all pass.
+
+**Submission checklist (verified before opening):** branch targets `lycheeverse:master` ← `samiuls25:fix-issue-997`; no merge conflicts (`git merge-tree` clean against latest `master`); exact CI commands pass locally (`cargo fmt --all --check`, `cargo clippy --all-targets --all-features -- -D warnings`); no DCO/CLA required; "Allow edits by maintainers" enabled.
 
 **Maintainer Feedback:**
-- [Date]: [Summary of feedback received]
-- [Date]: [How you addressed it]
+- _2026-06-24:_ PR opened and awaiting review. The maintainer (@mre) had already confirmed I could take the issue.
+- _2026-06-29:_ @mre reviewed, **approved, and merged** the PR (merge commit `2761062`) into `lycheeverse:master`; all 7 CI checks passed, and issue #997 was auto-closed. He left one non-blocking observation: the codebase mixes the related-but-distinct terms "unsupported" (the internal status) and "ignored" (the user-facing label), which could be aligned in the future. This was a deliberate choice in my change - user-facing "Ignored" to match the `[IGNORED]` label, internal `unsupported_map`/`is_unsupported()` naming. Since the note was non-blocking and the PR was already merged, I acknowledged the merge with an emoji reaction and am leaving the contribution here as completed.
 
-**Status:** [Awaiting review / Iterating / Approved / Merged]
+**Status:** ✅ Merged (shipping in lychee v0.25.0)
 
 ---
 
@@ -277,20 +279,32 @@ All five commits are pushed to the branch; the full suite is green (17 stats tes
 
 ### Technical Skills Gained
 
-[What you learned technically]
+- **Reading an unfamiliar Rust codebase to find a root cause.** I traced the bug from the formatter output back through `ResponseStats::add_response_status` and learned the difference between where lychee *counts* a status (`increment_status_counters`) and where it *stores* the response body for later display. The real fix was in the data layer first, and then the formatter the issue pointed at.
+- **Rust specifics:** working with `HashMap<InputSource, HashSet<ResponseBody>>`, the `Display` trait and `fmt::Formatter`, iterator chaining (`.chain(...)`) to merge maps, struct-update syntax (`..Default::default()`), and how `#[derive(Serialize)]` means adding a field changes JSON output.
+- **The project's testing style:** in-crate unit tests with exact-output "snapshot" assertions, and how to generate a snapshot by running the test once and freezing the real output.
+- **Professional Git/GitHub workflow:** fork + `upstream`/`origin` remotes, `git fetch`/`rebase` to stay current, atomic Conventional Commits, `git merge-tree` to detect conflicts before opening a PR, and matching CI locally (`cargo fmt --all --check`, `cargo clippy --all-targets --all-features -- -D warnings`).
 
 ### Challenges Overcome
 
-[What was hard and how you solved it]
+- **The issue's guidance was outdated.** The maintainer's 2023 comment said to "add a block to iterate over the ignored links," but it assumed the data was already collected — it wasn't (it fell through an `else { return; }`). Realizing the listed fix couldn't work without first capturing the data was the key insight.
+- **A subtle `PartialEq` bug in a test.** My first unit test compared two `Status::Unsupported(ErrorKind::UnsupportedUriType(...))` values that looked identical but failed `assert_eq!`. The cause was that `ErrorKind`'s hand-written `PartialEq` has no arm for that variant, so it falls through to `_ => false`. I fixed it by using `ErrorKind::InvalidUrlHost`, which is handled and is a real cause of an `Unsupported` status. This taught me not to assume derived equality.
+- **Keeping commits atomic without breaking other tests.** Editing the shared `get_dummy_stats()` fixture would have rippled snapshot changes across several formatter tests at once. I used local per-test fixtures instead (the same pattern `junit.rs` uses), so each commit stayed self-contained and green.
+- **stdout vs stderr.** Early on it looked like ignored links *were* shown, until I realized those `[IGNORED]` lines are live progress on stderr, while the actual report (the thing the issue is about) goes to stdout. Isolating it with `2>/dev/null` made the bug more obvious.
 
 ### What I'd Do Differently Next Time
 
-[Reflection on your process]
+- **Decide on adjacent fixes earlier.** I went back and forth on whether to fix the `detailed.rs` count typo. Settling a clear rule up front ("fix on-theme adjacent bugs, but in their own commit") would have avoided the churn.
+- **Confirm a fixture's equality semantics before writing assertions**, rather than discovering the `PartialEq` quirk through a failing test.
+- Overall the small-commit, test-as-you-go approach worked well, and I'd keep it.
 
 ---
 
 ## Resources Used
 
-- [Link to helpful documentation]
-- [Tutorial or Stack Overflow post that helped]
-- [GitHub issues or discussions that helped]
+- [lychee issue #997](https://github.com/lycheeverse/lychee/issues/997) - the issue itself, including the maintainer's implementation pointer and the original reporter's minimal reproduction repo.
+- [lychee CONTRIBUTING.md](https://github.com/lycheeverse/lychee/blob/master/CONTRIBUTING.md) - setup and the `cargo test` / `cargo clippy` expectations.
+- [lychee CI workflow](https://github.com/lycheeverse/lychee/blob/master/.github/workflows/ci.yml) - to find the exact checks CI enforces (`cargo fmt --all --check`, `cargo clippy --all-targets --all-features -- -D warnings`) and match them locally.
+- [rustup.rs](https://rustup.rs/) - installing the Rust toolchain.
+- [Rust `std::fmt` docs](https://doc.rust-lang.org/std/fmt/) - the `Display` trait and `Formatter`, for the formatter changes.
+- [Conventional Commits](https://www.conventionalcommits.org/) - commit message format (the project uses `release-plz`, which relies on it).
+- Existing code in the same area as my own best reference - `markdown.rs`/`compact.rs`/`detailed.rs`/`junit.rs` showed the patterns to mirror for both the formatter blocks and the test fixtures.
